@@ -1,0 +1,18 @@
+{
+  "name": "Syntagma Visual",
+  "short_name": "Syntagma",
+  "description": "Herramienta visual para analizar oraciones morfosintácticamente.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
