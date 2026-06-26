@@ -162,11 +162,11 @@ button {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  min-width: 230px;
+  min-width: 360px;
 }
 
 .auth-box input {
-  min-width: 150px;
+  min-width: 120px;
   padding: 0.58rem 0.62rem;
 }
 

@@ -6,7 +6,16 @@ import Palette from './components/Palette.jsx';
 import TopBar from './components/TopBar.jsx';
 import Canvas from './components/Canvas.jsx';
 import { createEmptyAnalysis, normalizeAnalysis, tokenize } from './lib/analysisModel.js';
-import { isSupabaseConfigured, supabase } from './lib/supabaseClient.js';
+import {
+  auth,
+  createAccountWithEmailAndPassword,
+  isFirebaseConfigured,
+  loadLatestCloudAnalysis,
+  loginWithEmailAndPassword,
+  onAuthStateChanged,
+  saveAnalysisToCloud,
+  signOut,
+} from './lib/firebaseClient.js';
 
 const LOCAL_KEY = 'syntagma-visual-current-analysis';
 
@@ -21,8 +30,9 @@ export default function App() {
   const [activeLabel, setActiveLabel] = useState(null);
   const [arrowMode, setArrowMode] = useState(false);
   const [selectedLabelIds, setSelectedLabelIds] = useState([]);
-  const [session, setSession] = useState(null);
+  const [user, setUser] = useState(null);
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
 
   const canvasRef = useRef(null);
@@ -32,17 +42,11 @@ export default function App() {
   }, [analysis]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!isFirebaseConfigured || !auth) return undefined;
 
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session || null);
+    return onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser || null);
     });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-      setSession(currentSession || null);
-    });
-
-    return () => listener.subscription.unsubscribe();
   }, []);
 
   const pushHistory = () => {
@@ -165,24 +169,19 @@ export default function App() {
 
     const payload = { ...analysis, title, updatedAt: new Date().toISOString() };
     setAnalysis(payload);
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(payload));
 
-    if (!isSupabaseConfigured || !session?.user) {
-      localStorage.setItem(LOCAL_KEY, JSON.stringify(payload));
-      setStatusMessage('Guardado localmente. Configura Supabase e inicia sesión para guardar en la nube.');
+    if (!isFirebaseConfigured || !user) {
+      setStatusMessage('Guardado localmente. Configura Firebase e inicia sesión para guardar en la nube.');
       return;
     }
 
-    const { error } = await supabase.from('analyses').upsert({
-      id: payload.id,
-      user_id: session.user.id,
-      title,
-      sentence: payload.sentence,
-      level: payload.level,
-      mode: payload.mode,
-      payload,
-    });
-
-    setStatusMessage(error ? `Error al guardar: ${error.message}` : 'Guardado en Supabase.');
+    try {
+      await saveAnalysisToCloud(user.uid, payload);
+      setStatusMessage('Guardado en Firebase.');
+    } catch (error) {
+      setStatusMessage(`Error al guardar en Firebase: ${error.message}`);
+    }
   };
 
   const loadLocal = () => {
@@ -196,32 +195,66 @@ export default function App() {
     setStatusMessage('Análisis local cargado.');
   };
 
+  const loadCloud = async () => {
+    if (!isFirebaseConfigured || !user) {
+      setStatusMessage('Para abrir desde la nube necesitas Firebase configurado y sesión iniciada.');
+      return;
+    }
+
+    try {
+      const cloudAnalysis = await loadLatestCloudAnalysis(user.uid);
+      if (!cloudAnalysis) {
+        setStatusMessage('No hay análisis guardados en la nube para esta cuenta.');
+        return;
+      }
+      pushHistory();
+      setAnalysis(normalizeAnalysis(cloudAnalysis));
+      setStatusMessage('Último análisis de Firebase cargado.');
+    } catch (error) {
+      setStatusMessage(`Error al abrir desde Firebase: ${error.message}`);
+    }
+  };
+
   const login = async () => {
-    if (!isSupabaseConfigured) {
-      setStatusMessage('Supabase todavía no está configurado.');
+    if (!isFirebaseConfigured) {
+      setStatusMessage('Firebase todavía no está configurado.');
       return;
     }
-    if (!email.trim()) {
-      setStatusMessage('Escribe un email para iniciar sesión.');
+    if (!email.trim() || !password.trim()) {
+      setStatusMessage('Escribe email y contraseña.');
       return;
     }
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        emailRedirectTo: window.location.href,
-      },
-    });
+    try {
+      await loginWithEmailAndPassword(email.trim(), password);
+      setStatusMessage('Sesión iniciada.');
+    } catch (error) {
+      setStatusMessage(`Error de acceso: ${translateFirebaseError(error.code, error.message)}`);
+    }
+  };
 
-    setStatusMessage(
-      error ? `Error de acceso: ${error.message}` : 'Revisa tu correo para entrar mediante enlace mágico.'
-    );
+  const createAccount = async () => {
+    if (!isFirebaseConfigured) {
+      setStatusMessage('Firebase todavía no está configurado.');
+      return;
+    }
+    if (!email.trim() || password.length < 6) {
+      setStatusMessage('Escribe email y una contraseña de al menos 6 caracteres.');
+      return;
+    }
+
+    try {
+      await createAccountWithEmailAndPassword(email.trim(), password);
+      setStatusMessage('Cuenta creada e iniciada.');
+    } catch (error) {
+      setStatusMessage(`Error al crear cuenta: ${translateFirebaseError(error.code, error.message)}`);
+    }
   };
 
   const logout = async () => {
-    if (!isSupabaseConfigured) return;
-    await supabase.auth.signOut();
-    setSession(null);
+    if (!isFirebaseConfigured || !auth) return;
+    await signOut(auth);
+    setUser(null);
     setStatusMessage('Sesión cerrada.');
   };
 
@@ -238,13 +271,17 @@ export default function App() {
         onUndo={undo}
         onSave={saveAnalysis}
         onLoadLocal={loadLocal}
-        supabaseStatus={
-          isSupabaseConfigured ? 'Supabase configurado' : 'Supabase sin configurar: se usará guardado local'
+        onLoadCloud={loadCloud}
+        backendStatus={
+          isFirebaseConfigured ? 'Firebase configurado' : 'Firebase sin configurar: se usará guardado local'
         }
-        session={session}
+        user={user}
         email={email}
         setEmail={setEmail}
+        password={password}
+        setPassword={setPassword}
         onLogin={login}
+        onCreateAccount={createAccount}
         onLogout={logout}
       />
 
@@ -280,7 +317,7 @@ export default function App() {
 
       <div className="status-line">
         <span>{statusMessage || 'Lista para trabajar.'}</span>
-        <span>{isSupabaseConfigured ? 'Supabase preparado' : 'Modo local'}</span>
+        <span>{isFirebaseConfigured ? 'Firebase preparado' : 'Modo local'}</span>
       </div>
     </div>
   );
@@ -294,4 +331,17 @@ function safeFileName(value) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
     .slice(0, 70);
+}
+
+function translateFirebaseError(code, fallback) {
+  const messages = {
+    'auth/invalid-credential': 'credenciales incorrectas.',
+    'auth/user-not-found': 'no existe una cuenta con ese email.',
+    'auth/wrong-password': 'contraseña incorrecta.',
+    'auth/email-already-in-use': 'ese email ya está registrado.',
+    'auth/weak-password': 'la contraseña es demasiado débil.',
+    'auth/invalid-email': 'email no válido.',
+  };
+
+  return messages[code] || fallback;
 }

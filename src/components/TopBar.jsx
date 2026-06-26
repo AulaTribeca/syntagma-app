@@ -9,11 +9,15 @@ export default function TopBar({
   onUndo,
   onSave,
   onLoadLocal,
-  supabaseStatus,
-  session,
+  onLoadCloud,
+  backendStatus,
+  user,
   email,
   setEmail,
+  password,
+  setPassword,
   onLogin,
+  onCreateAccount,
   onLogout,
 }) {
   return (
@@ -67,10 +71,11 @@ export default function TopBar({
         <button onClick={onExportPdf}>PDF</button>
         <button className="primary" onClick={onSave}>Guardar</button>
         <button onClick={onLoadLocal}>Abrir local</button>
+        <button onClick={onLoadCloud}>Abrir nube</button>
       </div>
 
-      <div className="auth-box" title={supabaseStatus}>
-        {session ? (
+      <div className="auth-box" title={backendStatus}>
+        {user ? (
           <>
             <span className="session-pill">Con sesión</span>
             <button onClick={onLogout}>Salir</button>
@@ -80,10 +85,18 @@ export default function TopBar({
             <input
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="email para guardar"
+              placeholder="email"
               aria-label="Email"
             />
+            <input
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="contraseña"
+              aria-label="Contraseña"
+              type="password"
+            />
             <button onClick={onLogin}>Entrar</button>
+            <button onClick={onCreateAccount}>Crear</button>
           </>
         )}
       </div>
